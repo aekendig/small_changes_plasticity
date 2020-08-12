@@ -42,7 +42,7 @@ J0 <- 0   # initial juvenile trees
 A0 <- 0   # initial adult trees
 
 # simulation conditions
-simtime <- 50  # years of simulation
+simtime <- 500  # years of simulation
 
 # plant traits (all per year)
 s <- 0.8   # survival in the seed bank (fake value)
@@ -58,7 +58,7 @@ max_light <- 1800   # max light value (Drew's figure)
 b <- 2   # max biomass size in grams (Drew's figure)
 a <- b / max_light   # linear coefficient (Drew's figure)
 h1 <- 400   # half saturation constant for saturating curve (Drew's figure)
-h2 <- 800   # half saturation constant for S-curve (fake value)
+h2 <- 800   # half saturation constant for sigmoidal (fake value)
 
 
 #### biomass-light functions ####
@@ -85,10 +85,10 @@ bl_sat <- function(light){
 
 }
 
-# S-curve
-bl_scu <- function(light){
+# sigmoidal
+bl_sig <- function(light){
   
-  b2 <- b + (b * (h2^2 + max_light^2) / max_light^2 - b)   # max biomass for S-curve (to match linear)
+  b2 <- b + (b * (h2^2 + max_light^2) / max_light^2 - b)   # max biomass for sigmoidal (to match linear)
   
   biomass <- (b2 * light^2 / (h2^2 + light^2))
   
@@ -98,14 +98,14 @@ bl_scu <- function(light){
 
 # dataframe of test functions
 bl_test <- tibble(light_val = rep(seq(0, max_light, length.out = 200), 3),
-                  fun_shape = rep(c("linear", "saturating", "S-curve"), each = 200)) %>%
+                  fun_shape = rep(c("linear", "saturating", "sigmoidal"), each = 200)) %>%
   mutate(biomass = case_when(fun_shape == "linear" ~ bl_lin(light_val),
                              fun_shape == "saturating" ~ bl_sat(light_val),
-                             fun_shape == "S-curve" ~ bl_scu(light_val)),
+                             fun_shape == "sigmoidal" ~ bl_sig(light_val)),
          fun_shape = fct_relevel(fun_shape, "linear", "saturating"))
 
 # figure of function test
-pdf("output/light_biomass_function_shapes.pdf")
+pdf("output/model_v1/light_biomass_function_shapes.pdf")
 ggplot(bl_test, aes(light_val, biomass, color = fun_shape)) +
   geom_line() +
   geom_vline(xintercept = 10, linetype = "dashed", color = "black") +
@@ -123,7 +123,7 @@ dev.off()
 sim_fun <- function(light, fun_shape){
   
   # juvenile biomass as a function of light
-  y_J <- ifelse(fun_shape == "linear", bl_lin(light), ifelse(fun_shape == "saturating", bl_sat(light), bl_scu(light))) * 3 # assume this was over one month and increase for longer growing season
+  y_J <- ifelse(fun_shape == "linear", bl_lin(light), ifelse(fun_shape == "saturating", bl_sat(light), bl_sig(light))) * 3 # assume this was over one month and increase for longer growing season
   
   # adult biomass
   y_A <- q * y_J
@@ -175,11 +175,11 @@ test_10_sat <- sim_fun(10, "saturating") %>%
   mutate(Light = 10,
          fun_shape = "saturating")
 
-# light is at 10 and biomass growth is an S-curve function of light
-test_10_scu <- sim_fun(10, "S-curve") %>%
+# light is at 10 and biomass growth is an sigmoidal function of light
+test_10_sig <- sim_fun(10, "sigmoidal") %>%
   as_tibble() %>%
   mutate(Light = 10,
-         fun_shape = "S-curve")
+         fun_shape = "sigmoidal")
 
 # light is at 250 and biomass growth is a linear function of light
 test_250_lin <- sim_fun(250, "linear") %>%
@@ -193,19 +193,19 @@ test_250_sat <- sim_fun(250, "saturating") %>%
   mutate(Light = 250,
          fun_shape = "saturating")
 
-# light is at 250 and biomass growth is an S-curve function of light
-test_250_scu <- sim_fun(250, "S-curve") %>%
+# light is at 250 and biomass growth is an sigmoidal function of light
+test_250_sig <- sim_fun(250, "sigmoidal") %>%
   as_tibble() %>%
   mutate(Light = 250,
-         fun_shape = "S-curve")
+         fun_shape = "sigmoidal")
 
 # combine them
-test_scen <- rbind(test_10_lin, test_10_sat, test_10_scu, test_250_lin, test_250_sat, test_250_scu) %>%
+test_scen <- rbind(test_10_lin, test_10_sat, test_10_sig, test_250_lin, test_250_sat, test_250_sig) %>%
   mutate(fun_shape = fct_relevel(fun_shape, "linear", "saturating"),
          Light = as.factor(Light))
 
 # figures
-pdf("output/test_scenarios_time_series.pdf")
+pdf("output/model_v1/test_scenarios_time_series.pdf")
 ggplot(test_scen, aes(time, seeds, color = fun_shape, linetype = Light)) +
   geom_line() +
   xlab("Time (years)") +
@@ -242,4 +242,105 @@ ggplot(test_scen, aes(time, biomass, color = fun_shape, linetype = Light)) +
   fig_theme
 dev.off()
 
+
+#### final by resource change ####
+
+# number of resource datapoints
+res_points <- 200
+
+# input dataframe
+res_curve <- tibble(light = rep(seq(0, max_light, length.out = res_points), 3),
+                    fun_shape = rep(c("linear", "saturating", "sigmoidal"), each = res_points)) %>%
+  mutate(seeds = NA,
+         juveniles = NA,
+         adults = NA,
+         biomass = NA)
+
+# final density for each input combination
+for(i in 1:nrow(res_curve)){
+  
+  # run model
+  temp_mod <- sim_fun(light = res_curve$light[i], fun_shape = res_curve$fun_shape[i])
+  
+  # add final timepoint to dataframe
+  res_curve$seeds[i] <- temp_mod$seeds[simtime]
+  res_curve$juveniles[i] <- temp_mod$juveniles[simtime]
+  res_curve$adults[i] <- temp_mod$adults[simtime]
+  res_curve$biomass[i] <- temp_mod$biomass[simtime]
+  
+}
+
+# check 0 light values
+filter(res_curve, light == 0)
+# all 0
+
+# modify dataframe
+res_curve2 <- res_curve %>%
+  mutate(trees = juveniles + adults)
+
+# figure
+pdf("output/model_v1/final_prediction_light_change.pdf")
+ggplot(res_curve2, aes(light, trees, color = fun_shape)) +
+  geom_line() +
+  guides(color = guide_legend(title = "Function shape")) +
+  xlab(expression(paste("Change in light availability (", mu, "moles ", m^-2, " ", sec^-1, ")", sep = ""))) +
+  ylab("Final number of trees") +
+  fig_theme
+
+ggplot(res_curve2, aes(light, biomass, color = fun_shape)) +
+  geom_line() +
+  guides(color = guide_legend(title = "Function shape")) +
+  xlab(expression(paste("Change in light availability (", mu, "moles ", m^-2, " ", sec^-1, ")", sep = ""))) +
+  ylab("Final total biomass (g)") +
+  fig_theme
+dev.off()
+
+
+#### difference from linear ####
+
+# make wide by function shape
+res_curve_w <- res_curve2 %>%
+  select(-c(seeds:adults)) %>%
+  pivot_wider(names_from = fun_shape,
+              values_from = c(biomass, trees),
+              names_glue = "{fun_shape}_{.value}") %>%
+  mutate(linear_biomass_ch = linear_biomass - linear_biomass,
+         linear_trees_ch = linear_trees - linear_trees,
+         saturating_biomass_ch = linear_biomass - saturating_biomass,
+         saturating_trees_ch = linear_trees - saturating_trees,
+         sigmoidal_biomass_ch = linear_biomass - sigmoidal_biomass,
+         sigmoidal_trees_ch = linear_trees - sigmoidal_trees)
+
+# make long by change type
+res_curve_l <- res_curve_w %>%
+  select(light, linear_biomass_ch, saturating_biomass_ch, sigmoidal_biomass_ch) %>%
+  pivot_longer(cols = c(linear_biomass_ch, saturating_biomass_ch, sigmoidal_biomass_ch),
+               names_to = "fun_shape",
+               values_to = "biomass_change") %>%
+  mutate(fun_shape = sub("\\_.*", "", fun_shape)) %>%
+  full_join(res_curve_w %>%
+              select(light, linear_trees_ch, saturating_trees_ch, sigmoidal_trees_ch) %>%
+              pivot_longer(cols = c(linear_trees_ch, saturating_trees_ch, sigmoidal_trees_ch),
+                           names_to = "fun_shape",
+                           values_to = "trees_change") %>%
+              mutate(fun_shape = sub("\\_.*", "", fun_shape)))
+
+# figure
+pdf("output/model_v1/difference_linear_light_change.pdf")
+ggplot(res_curve_l, aes(light, trees_change, color = fun_shape)) +
+  geom_line() +
+  guides(color = guide_legend(title = "Actual biomass-light relationship")) +
+  xlab(expression(paste("Change in light availability (", mu, "moles ", m^-2, " ", sec^-1, ")", sep = ""))) +
+  ylab("Tree difference due to linear approximation") +
+  fig_theme +
+  theme(legend.position = "bottom")
+
+ggplot(res_curve_l, aes(light, biomass_change, color = fun_shape)) +
+  geom_line() +
+  guides(color = guide_legend(title = "Actual biomass-light relationship")) +
+  xlab(expression(paste("Change in light availability (", mu, "moles ", m^-2, " ", sec^-1, ")", sep = ""))) +
+  ylab("Biomass difference due to linear approximation (g)") +
+  fig_theme +
+  theme(legend.position = "bottom")
+dev.off()
 
