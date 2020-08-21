@@ -57,11 +57,10 @@ q <- 4   # conversion from juvenile to adult biomass (fake value)
 # biomass-light parameters
 max_light <- 1800   # max light value (Drew's figure)
 b <- 2   # max biomass size in grams (Drew's figure)
-n <- 4 # exponent
 
 
 #### biomass-light functions ####
- 
+
 # linear function
 bl_lin <- function(light){
   
@@ -73,24 +72,25 @@ bl_lin <- function(light){
   
 }
 
-# positive negative function
+# positive function
 bl_pos <- function(light){
   
-  n_pos <-  1 / n # use inverse for positive curve
-  a <- b / max_light^n_pos # coefficient to match max biomass
-  
-  biomass <- a * light^n_pos
+  h <- max_light/2
+  j <- b
+  a <- -j/(h^2)
+  biomass <- a * (light - h)^2 + j
   
   return(biomass)
   
 }
 
-# negative negative function
+# negative function
 bl_neg <- function(light){
   
-  a <- b / max_light^n # coefficient to match max biomass
-  
-  biomass <- a * light^n
+  h <- max_light/2
+  j <- 0
+  a <- (b-j)/(h^2)
+  biomass <- a * (light - h)^2 + j
   
   return(biomass)
   
@@ -105,7 +105,7 @@ bl_test <- tibble(light_val = rep(seq(0, max_light, length.out = 200), 3),
          fun_shape = fct_relevel(fun_shape, "linear", "positive"))
 
 # figure of function test
-pdf("output/model_v2/light_biomass_function_shapes.pdf")
+pdf("output/model_v3/light_biomass_function_shapes.pdf")
 ggplot(bl_test, aes(light_val, biomass, color = fun_shape)) +
   geom_line() +
   geom_vline(xintercept = 10, linetype = "dashed", color = "black") +
@@ -116,6 +116,21 @@ ggplot(bl_test, aes(light_val, biomass, color = fun_shape)) +
   fig_theme +
   theme(legend.position = c(0.8, 0.2))
 dev.off()
+
+
+#### intersection points ####
+
+# make wide by function shape
+bl_test_w <- pivot_wider(bl_test, names_from = fun_shape, values_from = biomass) %>%
+  mutate(poslin = positive - linear,
+         linneg = linear - negative)
+
+# light values where functions intersect
+light_pos <- filter(bl_test_w, poslin > 0) %>%
+  filter(light_val == max(light_val))
+
+light_neg <- filter(bl_test_w, linneg > 0) %>%
+  filter(light_val == min(light_val))
 
 
 #### simulation function ####
@@ -205,7 +220,7 @@ test_scen <- rbind(test_10_lin, test_10_pos, test_10_neg, test_250_lin, test_250
          Light = as.factor(Light))
 
 # figures
-pdf("output/model_v2/test_scenarios_time_series.pdf")
+pdf("output/model_v3/test_scenarios_time_series.pdf")
 ggplot(test_scen, aes(time, seeds, color = fun_shape, linetype = Light)) +
   geom_line() +
   xlab("Time (years)") +
@@ -279,7 +294,7 @@ res_curve2 <- res_curve %>%
   mutate(trees = juveniles + adults)
 
 # figure
-pdf("output/model_v2/final_prediction_light_change.pdf")
+pdf("output/model_v3/final_prediction_light_change.pdf")
 ggplot(res_curve2, aes(light, trees, color = fun_shape)) +
   geom_line() +
   guides(color = guide_legend(title = "Function shape")) +
@@ -326,7 +341,7 @@ res_curve_l <- res_curve_w %>%
               mutate(fun_shape = sub("\\_.*", "", fun_shape)))
 
 # figure
-pdf("output/model_v2/difference_linear_light_change.pdf")
+pdf("output/model_v3/difference_linear_light_change.pdf")
 ggplot(res_curve_l, aes(light, trees_change, color = fun_shape)) +
   geom_line() +
   guides(color = guide_legend(title = "Actual biomass-light relationship")) +
@@ -345,7 +360,7 @@ ggplot(res_curve_l, aes(light, biomass_change, color = fun_shape)) +
 dev.off()
 
 
-#### differences across resource levels ###
+#### differences across resource levels ####
 
 # divide data by function shape
 res_curv_lin <- filter(res_curve2, fun_shape == "linear")
@@ -378,7 +393,7 @@ res_diff <- full_join(res_diff_lin, res_diff_pos) %>%
 length(unique(res_diff$light_diff))
 
 # figure
-pdf("output/model_v2/espi.pdf")
+pdf("output/model_v3/espi.pdf")
 ggplot(res_diff, aes(light_diff, biomass_espi)) +
   geom_point(alpha = 0.6) +
   facet_wrap(~ fun_shape, scales = "free") +
@@ -403,6 +418,84 @@ ggplot(res_diff, aes(light_diff, trees_espi)) +
   fig_theme
 
 ggplot(res_diff, aes(light_interval, trees_espi)) +
+  stat_summary(geom = "errorbar", fun.data = "mean_cl_boot") +
+  stat_summary(geom = "point", fun = "mean") +
+  facet_wrap(~ fun_shape) +
+  fig_theme +
+  xlab(expression(paste("Binned change in light availability (", mu, "moles ", m^-2, " ", sec^-1, ")", sep = ""))) +
+  ylab(expression(paste("Trees ESPI (number (", mu, "moles ", m^-2, " ", sec^-1, ")"^-1, ")", sep = ""))) +
+  theme(axis.text.x = element_blank())
+dev.off()
+
+
+#### ESPI overlapping ranges ####
+
+# divide data by function shape
+ov_res_curv_lin_pos <- filter(res_curve2, fun_shape == "linear" & light <= light_pos$light_val)
+ov_res_curv_lin_neg <- filter(res_curve2, fun_shape == "linear" & light >= light_neg$light_val)
+ov_res_curv_pos <- filter(res_curve2, fun_shape == "positive" & light <= light_pos$light_val)
+ov_res_curv_neg <- filter(res_curve2, fun_shape == "negative" & light >= light_neg$light_val)
+
+# compute the differences
+ov_res_diff_lin_pos <- tibble(light_diff = as.numeric(dist(ov_res_curv_lin_pos$light, method = "manhattan")),
+                       biomass_diff = as.numeric(dist(ov_res_curv_lin_pos$biomass, method = "manhattan")),
+                       trees_diff = as.numeric(dist(ov_res_curv_lin_pos$trees, method = "manhattan")),
+                       fun_shape = "linear")
+ov_res_diff_lin_neg <- tibble(light_diff = as.numeric(dist(ov_res_curv_lin_neg$light, method = "manhattan")),
+                              biomass_diff = as.numeric(dist(ov_res_curv_lin_neg$biomass, method = "manhattan")),
+                              trees_diff = as.numeric(dist(ov_res_curv_lin_neg$trees, method = "manhattan")),
+                              fun_shape = "linear")
+ov_res_diff_pos <- tibble(light_diff = as.numeric(dist(ov_res_curv_pos$light, method = "manhattan")),
+                       biomass_diff = as.numeric(dist(ov_res_curv_pos$biomass, method = "manhattan")),
+                       trees_diff = as.numeric(dist(ov_res_curv_pos$trees, method = "manhattan")),
+                       fun_shape = "positive")
+ov_res_diff_neg <- tibble(light_diff = as.numeric(dist(ov_res_curv_neg$light, method = "manhattan")),
+                       biomass_diff = as.numeric(dist(ov_res_curv_neg$biomass, method = "manhattan")),
+                       trees_diff = as.numeric(dist(ov_res_curv_neg$trees, method = "manhattan")),
+                       fun_shape = "negative")
+
+# combine
+# divide trait differences be environmental differences
+ov_res_diff_pos <- full_join(ov_res_diff_lin_pos, ov_res_diff_pos) %>%
+  mutate(biomass_espi = biomass_diff / light_diff,
+         trees_espi = trees_diff / light_diff,
+         light_interval = cut_interval(light_diff, n = 100))
+
+ov_res_diff_neg <- full_join(ov_res_diff_lin_neg, ov_res_diff_neg) %>%
+  mutate(biomass_espi = biomass_diff / light_diff,
+         trees_espi = trees_diff / light_diff,
+         light_interval = cut_interval(light_diff, n = 100))
+
+# figure
+pdf("output/model_v3/espi_overlap.pdf")
+ggplot(ov_res_diff_pos, aes(light_interval, biomass_espi)) +
+  stat_summary(geom = "errorbar", fun.data = "mean_cl_boot") +
+  stat_summary(geom = "point", fun = "mean") +
+  facet_wrap(~ fun_shape) +
+  xlab(expression(paste("Binned change in light availability (", mu, "moles ", m^-2, " ", sec^-1, ")", sep = ""))) +
+  ylab(expression(paste("Biomass ESPI (g (", mu, "moles ", m^-2, " ", sec^-1, ")"^-1, ")", sep = ""))) +
+  fig_theme +
+  theme(axis.text.x = element_blank())
+
+ggplot(ov_res_diff_pos, aes(light_interval, trees_espi)) +
+  stat_summary(geom = "errorbar", fun.data = "mean_cl_boot") +
+  stat_summary(geom = "point", fun = "mean") +
+  facet_wrap(~ fun_shape) +
+  fig_theme +
+  xlab(expression(paste("Binned change in light availability (", mu, "moles ", m^-2, " ", sec^-1, ")", sep = ""))) +
+  ylab(expression(paste("Trees ESPI (number (", mu, "moles ", m^-2, " ", sec^-1, ")"^-1, ")", sep = ""))) +
+  theme(axis.text.x = element_blank())
+
+ggplot(ov_res_diff_neg, aes(light_interval, biomass_espi)) +
+  stat_summary(geom = "errorbar", fun.data = "mean_cl_boot") +
+  stat_summary(geom = "point", fun = "mean") +
+  facet_wrap(~ fun_shape) +
+  xlab(expression(paste("Binned change in light availability (", mu, "moles ", m^-2, " ", sec^-1, ")", sep = ""))) +
+  ylab(expression(paste("Biomass ESPI (g (", mu, "moles ", m^-2, " ", sec^-1, ")"^-1, ")", sep = ""))) +
+  fig_theme +
+  theme(axis.text.x = element_blank())
+
+ggplot(ov_res_diff_neg, aes(light_interval, trees_espi)) +
   stat_summary(geom = "errorbar", fun.data = "mean_cl_boot") +
   stat_summary(geom = "point", fun = "mean") +
   facet_wrap(~ fun_shape) +
