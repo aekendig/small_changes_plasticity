@@ -33,8 +33,9 @@ k <- 0.9   # adult survival (fake value)
 q <- 4   # conversion from juvenile to adult biomass (fake value)
 
 
-#### simulation function ####
+#### simulation functions ####
 
+# allow individual biomass (y) to vary
 sim_fun <- function(bio){
   
   # juvenile biomass as a function of light
@@ -42,6 +43,51 @@ sim_fun <- function(bio){
   
   # adult biomass
   y_A <- q * y_J
+  
+  # initialize populations
+  S <- rep(NA,simtime)
+  J <- rep(NA,simtime)
+  A <- rep(NA,simtime)
+  
+  S[1] <- S0
+  J[1] <- J0
+  A[1] <- A0
+  
+  # simulate population dynamics
+  for(t in 1:(simtime - 1)){	
+    
+    # population size
+    S[t+1] = s * (1 - g) * S[t] + c * (y_J * J[t] + y_A * A[t]) / (1 + alpha * (y_J * J[t] + y_A * A[t]))
+    J[t+1] = g * S[t] + (1 - m) * J[t]
+    A[t+1] = m * J[t] + k * A[t]
+    
+    # correct to prevent negative numbers
+    S[t+1] = ifelse(S[t+1] < 1, 0, S[t+1])
+    J[t+1] = ifelse(J[t+1] < 1, 0, J[t+1])
+    A[t+1] = ifelse(A[t+1] < 1, 0, A[t+1])
+  }
+  
+  # save data
+  dfN = tibble(time = 1:simtime, seeds = S, juveniles = J, adults = A) %>%
+    mutate(total_biomass = juveniles * y_J + adults * y_A,
+           trees = juveniles + adults)
+  
+  # return
+  return(dfN)
+}
+
+
+# allow individual biomass (y) and carrying capacity (1/alpha) to vary
+sim_fun2 <- function(bio, K){
+  
+  # juvenile biomass as a function of light
+  y_J <- bio * 3 # assume this was over one month and increase for longer growing season
+  
+  # adult biomass
+  y_A <- q * y_J
+  
+  # carrying capacity
+  alpha <- 1 / K
   
   # initialize populations
   S <- rep(NA,simtime)

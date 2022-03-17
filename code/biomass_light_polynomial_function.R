@@ -5,6 +5,7 @@ library(deSolve)
 
 max_light <- 1800   # max light value (Drew's figure)
 b <- 2   # max biomass size in grams (Drew's figure)
+pop_b <- b * 100 # max population-level biomass in grams
 
 
 #### biomass-light functions ####
