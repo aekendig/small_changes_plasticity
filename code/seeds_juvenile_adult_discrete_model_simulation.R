@@ -57,7 +57,7 @@ sim_fun <- function(bio){
   for(t in 1:(simtime - 1)){	
     
     # population size
-    S[t+1] = s * (1 - g) * S[t] + c * (y_J * J[t] + y_A * A[t]) / (1 + alpha * (y_J * J[t] + y_A * A[t]))
+    S[t+1] = s * (1 - g) * S[t] + c * y_A * A[t] / (1 + alpha * (y_J * J[t] + y_A * A[t]))
     J[t+1] = g * S[t] + (1 - m) * J[t]
     A[t+1] = m * J[t] + k * A[t]
     
@@ -102,7 +102,7 @@ sim_fun2 <- function(bio, K){
   for(t in 1:(simtime - 1)){	
     
     # population size
-    S[t+1] = s * (1 - g) * S[t] + c * (y_J * J[t] + y_A * A[t]) / (1 + alpha * (y_J * J[t] + y_A * A[t]))
+    S[t+1] = s * (1 - g) * S[t] + c * y_A * A[t] / (1 + alpha * (y_J * J[t] + y_A * A[t]))
     J[t+1] = g * S[t] + (1 - m) * J[t]
     A[t+1] = m * J[t] + k * A[t]
     
